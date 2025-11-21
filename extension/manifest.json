@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Prodota User Filter",
+  "description": "Adds a magnifier button to ProDota topics and filters posts by author on the page.",
+  "version": "0.1.0",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://prodota.ru/forum/topic/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "styles.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
+
