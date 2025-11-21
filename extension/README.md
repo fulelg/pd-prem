@@ -1,19 +1,22 @@
 # Prodota User Filter
 
-Chrome extension that adds a magnifying-glass button to every post on the [ProDota forum](https://prodota.ru/forum/topic/224176/page/721/?tab=comments#comment-28542905), so you can leave only the chosen author's messages on the current page.
+Расширение для Chrome, которое добавляет кнопку-лупу к каждому посту на форуме [ProDota](https://prodota.ru/forum/topic/224176/page/721/?tab=comments#comment-28542905) и позволяет вывести отдельную ленту сообщений выбранного пользователя.
 
-## Features
+## Возможности
 
-- Injects a search button into every `article.cPost` block.
-- Filters posts with a single click; the second click clears the filter.
-- Shows a floating status pill with the active filter and a reset button.
-- Watches dynamic updates via a `MutationObserver`.
+- Кнопка c иконкой лупы появляется в панели инструментов каждого `article.cPost`.
+- При клике запускается сбор сообщений пользователя: страницы обходятся от текущей в обе стороны до конца темы.
+- Показ ведётся по 20 сообщений на страницу с собственной пагинацией, стилизованной как штатная.
+- Ленивая загрузка: пока остальные страницы обрабатываются, уже найденные посты сразу появляются в отдельной ленте, а прогресс отображается в баннере.
+- Стандартные страницы форума скрываются, если в них нет нужных сообщений, а возврат к обычному виду делается кнопкой «Сбросить фильтр».
+- Плавающая панель в правом нижнем углу показывает статус загрузки и текущую страницу фильтра.
+- `MutationObserver` отслеживает подгруженные позже посты, чтобы кнопки появлялись и на них.
 
-## Installation
+## Установка
 
-1. Open `chrome://extensions/`.
-2. Enable Developer Mode (top-right corner).
-3. Click “Load unpacked” and select the `extension` directory.
+1. Откройте `chrome://extensions/`.
+2. Включите режим разработчика (правый верхний угол).
+3. Нажмите «Загрузить распакованное расширение» и выберите папку `extension`.
 
-Then open any topic page on the forum and use the magnifier button near the desired post.
+После загрузки откройте любую страницу темы на форуме и кликните по иконке лупы рядом с нужным постом. Пока фильтр активен, будет отображаться только пользовательская лента с собственной пагинацией; повторный клик по той же иконке или кнопка «Сбросить фильтр» вернёт стандартный вид.
 

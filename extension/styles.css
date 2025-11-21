@@ -70,3 +70,57 @@
   display: none !important;
 }
 
+body.pd-filter-mode #elPostFeed {
+  display: none !important;
+}
+
+body.pd-filter-mode .ipsPagination[data-ipspagination],
+body.pd-filter-mode .ipsPagination[data-ipsPagination] {
+  display: none !important;
+}
+
+#pd-filter-root {
+  display: none;
+  margin-top: 24px;
+}
+
+#pd-filter-root.pd-visible {
+  display: block;
+}
+
+.pd-filter-summary {
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.pd-filter-results article.cPost {
+  margin-bottom: 16px;
+}
+
+.pd-filter-loading,
+.pd-filter-empty {
+  padding: 32px;
+  text-align: center;
+  border: 1px dashed rgba(26, 30, 35, 0.3);
+  border-radius: 12px;
+  color: #333;
+  background: #f8f9fb;
+}
+
+.pd-filter-pagination {
+  margin: 16px 0;
+}
+
+.pd-pagination-info {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #666;
+}
+
+.pd-pagination {
+  justify-content: center;
+}
+
+.ipsPagination > li {
+  margin-right: 2px;
+}

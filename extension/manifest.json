@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Prodota User Filter",
-  "description": "Adds a magnifier button to ProDota topics and filters posts by author on the page.",
+  "description": "Добавляет кнопку-лупу в темы ProDota и собирает ленту сообщений выбранного автора с новой пагинацией.",
   "version": "0.1.0",
   "content_scripts": [
     {
