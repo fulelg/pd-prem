@@ -6,6 +6,8 @@
   const TOPIC_FEED_ID = "elPostFeed";
   const POSTS_PER_PAGE = 20;
   const MAX_CONCURRENT_REQUESTS = 5;
+  const QUOTE_COLLAPSE_MIN_LINES = 10;
+  const QUOTE_COLLAPSE_MIN_LENGTH = 600;
   const PENDING_FILTER_KEY = "pdFilterPending";
   const PENDING_FILTER_TTL = 2 * 60 * 1000;
 
@@ -529,7 +531,8 @@
       const commentNode = article.querySelector("[data-commentid]");
       const commentId = commentNode?.dataset.commentid || article.id || `${pageNumber}_${index}`;
       const anchor = `<a id="comment-${commentId}"></a>`;
-      const clone = article.cloneNode(true);
+      const clone = document.importNode(article, true);
+      normalizeEmbeddedMedia(clone);
       if (clone.dataset) {
         delete clone.dataset.pdEnhanced;
         delete clone.dataset.pdUserKey;
@@ -633,6 +636,8 @@
     } else {
       view.resultsNode.innerHTML = slice.map((post) => post.html).join("");
       enhancePosts(view.resultsNode);
+      hydrateEmbeddedContent(view.resultsNode);
+      applyQuoteMinimizer(view.resultsNode);
     }
 
     setFilteredSummary(view, { totalPosts, isLoading: Boolean(view.collector?.active) });
@@ -834,6 +839,135 @@
 
     document.body.appendChild(banner);
     updateBanner();
+  }
+
+  function normalizeEmbeddedMedia(container) {
+    if (!container?.querySelectorAll) {
+      return;
+    }
+
+    container.querySelectorAll("img").forEach((img) => {
+      const dataSrc = img.getAttribute("data-src") || img.getAttribute("data-original") || img.dataset?.src;
+      if (dataSrc) {
+        if (!img.getAttribute("src") || /spacer\.png$/i.test(img.getAttribute("src"))) {
+          img.setAttribute("src", dataSrc);
+        }
+      }
+      const dataSrcSet = img.getAttribute("data-srcset") || img.dataset?.srcset;
+      if (dataSrcSet) {
+        img.setAttribute("srcset", dataSrcSet);
+      }
+    });
+
+    container.querySelectorAll("iframe[data-src]").forEach((iframe) => {
+      if (!iframe.getAttribute("src")) {
+        iframe.setAttribute("src", iframe.getAttribute("data-src"));
+      }
+    });
+  }
+
+  function hydrateEmbeddedContent(container) {
+    if (!container) {
+      return;
+    }
+
+    try {
+      if (window.ips?.utils?.lazyLoad?.process) {
+        window.ips.utils.lazyLoad.process();
+      }
+    } catch (err) {
+      // ignore
+    }
+
+    if (window.jQuery) {
+      try {
+        const $container = window.jQuery(container);
+        window.jQuery(document).trigger("contentChange", [$container]);
+        window.jQuery(document).trigger("contentAdded", [$container]);
+      } catch (err) {
+        // ignore
+      }
+    }
+  }
+
+  function applyQuoteMinimizer(container) {
+    if (!container?.querySelectorAll) {
+      return;
+    }
+
+    container.querySelectorAll("blockquote.ipsQuote").forEach((quote) => {
+      if (quote.dataset.pdQuoteProcessed === "true") {
+        return;
+      }
+
+      const contents = quote.querySelector(".ipsQuote_contents");
+      if (!contents) {
+        return;
+      }
+
+      quote.dataset.pdQuoteProcessed = "true";
+      const toggleLink =
+        quote.querySelector(".ipsQuote_citation [data-action='toggleQuote']") ||
+        createQuoteToggle(quote);
+      const startCollapsed = shouldCollapseQuote(contents);
+      setQuoteCollapsed(quote, startCollapsed);
+
+      if (toggleLink && !toggleLink.dataset.pdToggleBound) {
+        toggleLink.dataset.pdToggleBound = "true";
+        toggleLink.addEventListener("click", (event) => {
+          event.preventDefault();
+          const collapsed = quote.classList.contains("pd-quote-collapsed");
+          setQuoteCollapsed(quote, !collapsed);
+        });
+      }
+    });
+  }
+
+  function shouldCollapseQuote(contents) {
+    const text = contents.textContent || "";
+    const lines = text.split(/\n+/).filter((line) => line.trim().length).length;
+    const hasNested = Boolean(contents.querySelector(".ipsQuote"));
+    return (
+      hasNested ||
+      lines >= QUOTE_COLLAPSE_MIN_LINES ||
+      text.length >= QUOTE_COLLAPSE_MIN_LENGTH
+    );
+  }
+
+  function setQuoteCollapsed(quote, collapsed) {
+    const citation = quote.querySelector(".ipsQuote_citation");
+    const contents = quote.querySelector(".ipsQuote_contents");
+    if (!citation || !contents) {
+      return;
+    }
+
+    if (collapsed) {
+      citation.classList.add("ipsQuote_closed");
+      citation.classList.remove("ipsQuote_open");
+      contents.style.display = "none";
+      contents.setAttribute("data-minimizedQuoteWasHere", "1");
+      quote.classList.add("pd-quote-collapsed");
+    } else {
+      citation.classList.add("ipsQuote_open");
+      citation.classList.remove("ipsQuote_closed");
+      contents.style.display = "block";
+      contents.setAttribute("animating", "false");
+      quote.classList.remove("pd-quote-collapsed");
+    }
+  }
+
+  function createQuoteToggle(quote) {
+    const citation = quote.querySelector(".ipsQuote_citation");
+    if (!citation) {
+      return null;
+    }
+
+    const link = document.createElement("a");
+    link.href = "#";
+    link.dataset.action = "toggleQuote";
+    link.innerHTML = "&nbsp;";
+    citation.insertBefore(link, citation.firstChild || null);
+    return link;
   }
 
   function updateBanner() {
