@@ -6,6 +6,8 @@
   const TOPIC_FEED_ID = "elPostFeed";
   const POSTS_PER_PAGE = 20;
   const MAX_CONCURRENT_REQUESTS = 5;
+  const PENDING_FILTER_KEY = "pdFilterPending";
+  const PENDING_FILTER_TTL = 2 * 60 * 1000;
 
   const STATE = {
     activeFilter: null,
@@ -17,6 +19,7 @@
     ensureBanner();
     enhancePosts();
     initObserver();
+    restorePendingFilterIfNeeded();
   }
 
   function enhancePosts(root = document) {
@@ -165,6 +168,10 @@
       return;
     }
 
+    if (redirectToFirstPage(userKey, username)) {
+      return;
+    }
+
     STATE.activeFilter = { key: userKey, username };
     startFilteredMode();
   }
@@ -172,6 +179,7 @@
   function clearFilter() {
     STATE.activeFilter = null;
     resetFilteredView();
+    STATE.pageInfo = null;
     updateUIState();
   }
 
@@ -438,6 +446,75 @@
     return order;
   }
 
+  function redirectToFirstPage(userKey, username) {
+    const pagination = document.querySelector(".ipsPagination[data-pages]");
+    const currentPage = detectCurrentPageNumber(pagination);
+    if (currentPage <= 1) {
+      return false;
+    }
+
+    const payload = {
+      key: userKey,
+      username,
+      timestamp: Date.now()
+    };
+
+    try {
+      sessionStorage.setItem(PENDING_FILTER_KEY, JSON.stringify(payload));
+    } catch (err) {
+      // ignore storage issues
+    }
+
+    const pageInfo = getPageInfo();
+    const targetUrl = buildPageUrl(1, pageInfo);
+    window.location.assign(targetUrl);
+    return true;
+  }
+
+  function restorePendingFilterIfNeeded() {
+    let raw;
+    try {
+      raw = sessionStorage.getItem(PENDING_FILTER_KEY);
+    } catch (err) {
+      raw = null;
+    }
+
+    if (!raw) {
+      return;
+    }
+
+    try {
+      sessionStorage.removeItem(PENDING_FILTER_KEY);
+    } catch (err) {
+      // ignore
+    }
+
+    let data = null;
+    try {
+      data = JSON.parse(raw);
+    } catch (err) {
+      data = null;
+    }
+
+    if (
+      !data ||
+      !data.key ||
+      !data.username ||
+      !data.timestamp ||
+      Date.now() - data.timestamp > PENDING_FILTER_TTL
+    ) {
+      return;
+    }
+
+    const pageInfo = getPageInfo();
+    if (!pageInfo || pageInfo.currentPage !== 1) {
+      return;
+    }
+
+    STATE.activeFilter = { key: data.key, username: data.username };
+    startFilteredMode();
+  }
+
   function extractMatchingPosts(root, pageNumber, targetKey) {
     if (!root || typeof root.querySelectorAll !== "function") {
       return [];
@@ -493,7 +570,8 @@
   }
 
   function getPageInfo() {
-    if (STATE.pageInfo) {
+    const signature = `${window.location.pathname}|${window.location.search}`;
+    if (STATE.pageInfo?.signature === signature) {
       return STATE.pageInfo;
     }
 
@@ -506,27 +584,32 @@
         10
       ) || 1;
 
-    let currentPage = parseInt(
-      pagination?.querySelector(".ipsPagination_active a[data-page]")?.dataset.page ||
-        "",
-      10
-    );
-    if (Number.isNaN(currentPage) || currentPage < 1) {
-      const match = window.location.pathname.match(/\/page\/(\d+)/);
-      currentPage = match ? parseInt(match[1], 10) : 1;
-    }
+    const currentPage = detectCurrentPageNumber(pagination);
 
     const url = new URL(window.location.href);
     const matchBase = url.pathname.match(/(.*?\/topic\/\d+)/);
     const baseUrl = `${url.origin}${matchBase ? matchBase[1] : url.pathname}`.replace(/\/$/, "");
 
     STATE.pageInfo = {
+      signature,
       baseUrl,
       totalPages,
       currentPage,
       tab: url.searchParams.get("tab")
     };
     return STATE.pageInfo;
+  }
+
+  function detectCurrentPageNumber(paginationEl) {
+    let currentPage = parseInt(
+      paginationEl?.querySelector(".ipsPagination_active a[data-page]")?.dataset.page || "",
+      10
+    );
+    if (Number.isNaN(currentPage) || currentPage < 1) {
+      const match = window.location.pathname.match(/\/page\/(\d+)/);
+      currentPage = match ? parseInt(match[1], 10) : 1;
+    }
+    return currentPage;
   }
 
   function renderFilteredResults(view) {
