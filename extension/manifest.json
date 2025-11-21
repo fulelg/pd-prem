@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Prodota Mafia User Filter",
-  "description": "Добавляет кнопку-лупу в темы ProDota и собирает ленту сообщений выбранного автора с новой пагинацией для интеллектуальной игры Mafia.",
+  "description": "Добавляет кнопку-лупу в темы ProDota и собирает ленту сообщений выбранного автора с новой пагинацией для игры Mafia.",
   "version": "0.1.0",
   "icons": {
     "16": "icons/logo_16px.png",
