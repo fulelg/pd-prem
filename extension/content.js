@@ -174,7 +174,13 @@
       return;
     }
 
-    STATE.activeFilter = { key: userKey, username };
+    STATE.activeFilter = {
+      key: userKey,
+      username,
+      keywords: [],
+      keywordInput: "",
+      awaitingApply: true
+    };
     startFilteredMode();
   }
 
@@ -196,8 +202,13 @@
 
     const view = createFilteredView(author);
     STATE.filteredView = view;
+    initializeKeywordControls(view);
+    renderFilteredResults(view);
     updateUIState();
-    collectFilteredPosts(view);
+
+    if (!view.awaitingApply && !view.collector) {
+      collectFilteredPosts(view);
+    }
   }
 
   function resetFilteredView(keepModeClass = false) {
@@ -241,12 +252,15 @@
       node.addEventListener("click", handlePaginationClick);
     });
 
-    return {
+    const view = {
       author,
       root,
       summaryNode: summary,
       resultsNode: results,
       paginationNodes: [paginationTop, paginationBottom],
+      keywordControls: null,
+      keywords: Array.isArray(STATE.activeFilter?.keywords) ? [...STATE.activeFilter.keywords] : [],
+      awaitingApply: STATE.activeFilter?.awaitingApply !== false,
       posts: [],
       perPage: POSTS_PER_PAGE,
       currentPage: 1,
@@ -254,6 +268,190 @@
       cancelled: false,
       loadingText: ""
     };
+
+    view.keywordControls = attachKeywordControls(view, paginationTop);
+    return view;
+  }
+
+  function attachKeywordControls(view, anchorNode) {
+    if (!view || !anchorNode) {
+      return null;
+    }
+
+    const container = document.createElement("div");
+    container.className = "pd-keyword-filter";
+
+    const heading = document.createElement("div");
+    heading.className = "pd-keyword-heading";
+    heading.textContent = "Фильтр по ключевым словам";
+    container.appendChild(heading);
+
+    const hint = document.createElement("p");
+    hint.className = "pd-keyword-hint";
+    hint.textContent =
+      "Введите одно или несколько слов (можно через запятую). Будут показаны сообщения, где встречается хотя бы одно из них.";
+    container.appendChild(hint);
+
+    const form = document.createElement("form");
+    form.className = "pd-keyword-form";
+    container.appendChild(form);
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "pd-keyword-input";
+    input.placeholder = "Например: голосование, защита, проверка";
+    form.appendChild(input);
+
+    const applyButton = document.createElement("button");
+    applyButton.type = "submit";
+    applyButton.className = "pd-keyword-apply";
+    applyButton.textContent = "Применить";
+    form.appendChild(applyButton);
+
+    const resetButton = document.createElement("button");
+    resetButton.type = "button";
+    resetButton.className = "pd-keyword-reset";
+    resetButton.textContent = "Сбросить слова";
+    resetButton.addEventListener("click", () => {
+      input.value = "";
+      setKeywordFilter(view, [], "");
+    });
+    form.appendChild(resetButton);
+
+    const status = document.createElement("div");
+    status.className = "pd-keyword-status";
+    container.appendChild(status);
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      applyKeywordFilterFromInput(view);
+    });
+
+    anchorNode.parentElement?.insertBefore(container, anchorNode);
+
+    return {
+      container,
+      input,
+      status
+    };
+  }
+
+  function initializeKeywordControls(view) {
+    if (!view?.keywordControls) {
+      return;
+    }
+    const keywords = Array.isArray(STATE.activeFilter?.keywords)
+      ? [...STATE.activeFilter.keywords]
+      : [];
+    view.keywords = keywords;
+    const rawValue =
+      typeof STATE.activeFilter?.keywordInput === "string"
+        ? STATE.activeFilter.keywordInput
+        : "";
+    if (view.keywordControls.input) {
+      view.keywordControls.input.value = rawValue;
+    }
+    renderKeywordStatus(view);
+  }
+
+  function applyKeywordFilterFromInput(view) {
+    if (!view?.keywordControls?.input) {
+      return;
+    }
+    const rawValue = view.keywordControls.input.value || "";
+    const keywords = parseKeywords(rawValue);
+    setKeywordFilter(view, keywords, rawValue);
+  }
+
+  function setKeywordFilter(view, keywords, rawValue = null) {
+    if (!view) {
+      return;
+    }
+    const normalized = Array.from(
+      new Set(
+        (keywords || [])
+          .map((word) => normalizeKeyword(word))
+          .filter(Boolean)
+      )
+    );
+    view.keywords = normalized;
+    if (STATE.activeFilter) {
+      STATE.activeFilter.keywords = normalized;
+      if (rawValue !== null) {
+        STATE.activeFilter.keywordInput = rawValue;
+      }
+      STATE.activeFilter.awaitingApply = false;
+    }
+    if (rawValue !== null && view.keywordControls?.input) {
+      view.keywordControls.input.value = rawValue;
+    }
+    view.currentPage = 1;
+    view.awaitingApply = false;
+    renderKeywordStatus(view);
+    renderFilteredResults(view);
+    updateBanner();
+
+    if (!view.collector) {
+      collectFilteredPosts(view);
+    }
+  }
+
+  function renderKeywordStatus(view) {
+    const statusNode = view.keywordControls?.status;
+    if (!statusNode) {
+      return;
+    }
+    if (view.awaitingApply) {
+      statusNode.textContent =
+        "Введите ключевые слова и нажмите «Применить», чтобы начать (оставьте поле пустым, чтобы показать все сообщения).";
+      return;
+    }
+    if (!view.keywords?.length) {
+      statusNode.textContent = "Слова не заданы — отображаются все сообщения пользователя.";
+      return;
+    }
+    statusNode.textContent = `Активные слова: ${view.keywords.join(
+      ", "
+    )}. Сообщения должны содержать хотя бы одно из них.`;
+  }
+
+  function parseKeywords(rawValue) {
+    if (!rawValue) {
+      return [];
+    }
+    return rawValue
+      .split(/[,;\n]/)
+      .map((word) => normalizeKeyword(word))
+      .filter(Boolean);
+  }
+
+  function normalizeKeyword(word) {
+    return word.trim().replace(/\s+/g, " ").toLowerCase();
+  }
+
+  function formatKeywordSummary(keywords) {
+    if (!Array.isArray(keywords) || !keywords.length) {
+      return "";
+    }
+    const preview = keywords.slice(0, 3).join(", ");
+    return keywords.length > 3 ? `${preview}…` : preview;
+  }
+
+  function normalizePostText(value) {
+    return (value || "").replace(/\s+/g, " ").trim().toLowerCase();
+  }
+
+  function extractSearchableText(article) {
+    if (!(article instanceof HTMLElement)) {
+      return "";
+    }
+    const commentContent = article.querySelector("[data-role='commentContent']");
+    const sourceNode = commentContent ? commentContent.cloneNode(true) : article.cloneNode(true);
+    if (!sourceNode) {
+      return "";
+    }
+    sourceNode.querySelectorAll("blockquote").forEach((quote) => quote.remove());
+    return normalizePostText(sourceNode.textContent || "");
   }
 
   function ensureFilteredRoot() {
@@ -458,6 +656,9 @@
     const payload = {
       key: userKey,
       username,
+      keywords: [],
+      keywordInput: "",
+      awaitingApply: true,
       timestamp: Date.now()
     };
 
@@ -513,7 +714,13 @@
       return;
     }
 
-    STATE.activeFilter = { key: data.key, username: data.username };
+    STATE.activeFilter = {
+      key: data.key,
+      username: data.username,
+      keywords: Array.isArray(data.keywords) ? data.keywords : [],
+      keywordInput: typeof data.keywordInput === "string" ? data.keywordInput : "",
+      awaitingApply: data.awaitingApply === false ? false : true
+    };
     startFilteredMode();
   }
 
@@ -533,6 +740,7 @@
       const anchor = `<a id="comment-${commentId}"></a>`;
       const clone = document.importNode(article, true);
       normalizeEmbeddedMedia(clone);
+      const textContent = extractSearchableText(article);
       if (clone.dataset) {
         delete clone.dataset.pdEnhanced;
         delete clone.dataset.pdUserKey;
@@ -545,7 +753,8 @@
         commentId,
         pageNumber,
         order: pageNumber * 1000 + index,
-        html: `${anchor}${wrapper.innerHTML}`
+        html: `${anchor}${wrapper.innerHTML}`,
+        text: textContent
       });
     });
     return matches;
@@ -615,17 +824,52 @@
     return currentPage;
   }
 
+  function getVisiblePosts(view) {
+    if (!view) {
+      return [];
+    }
+    if (!view.keywords?.length) {
+      return view.posts;
+    }
+    return view.posts.filter((post) => postMatchesKeywords(post, view.keywords));
+  }
+
+  function postMatchesKeywords(post, keywords) {
+    if (!keywords?.length) {
+      return true;
+    }
+    const text = post?.text || "";
+    if (!text) {
+      return false;
+    }
+    return keywords.some((keyword) => text.includes(keyword));
+  }
+
   function renderFilteredResults(view) {
     if (!view || view.cancelled) {
       return;
     }
 
-    const totalPosts = view.posts.length;
+    if (view.awaitingApply) {
+      if (view.resultsNode) {
+        view.resultsNode.innerHTML =
+          `<div class="pd-filter-empty">Введите ключевые слова и нажмите «Применить», чтобы загрузить сообщения пользователя или оставьте поле пустым для показа всех постов.</div>`;
+      }
+      view.paginationNodes?.forEach((node) => {
+        node.innerHTML = "";
+      });
+      setFilteredSummary(view, { totalPosts: 0, isLoading: Boolean(view.collector?.active) });
+      updateBanner();
+      return;
+    }
+
+    const visiblePosts = getVisiblePosts(view);
+    const totalPosts = visiblePosts.length;
     view.totalPages = Math.max(1, Math.ceil(totalPosts / view.perPage));
     view.currentPage = Math.min(view.currentPage, view.totalPages);
 
     const startIndex = (view.currentPage - 1) * view.perPage;
-    const slice = view.posts.slice(startIndex, startIndex + view.perPage);
+    const slice = visiblePosts.slice(startIndex, startIndex + view.perPage);
 
     if (slice.length === 0) {
       if (view.collector?.active) {
@@ -650,16 +894,44 @@
       return;
     }
     const base = `Сообщения пользователя ${STATE.activeFilter.username}`;
-    if (!totalPosts) {
-      const suffix = isLoading ? ` · ${buildProgressMessage(view)}` : " · сообщений нет";
-      view.summaryNode.textContent = `${base}${suffix}`;
+    const totalAuthored = view.posts.length;
+    const hasKeywords = Boolean(view.keywords?.length);
+    const keywordPart = hasKeywords ? ` · ключевые слова: ${view.keywords.join(", ")}` : "";
+
+    if (view.awaitingApply) {
+      const suffix = view.collector?.active ? " · подготовка…" : "";
+      view.summaryNode.textContent = `${base} · введите ключевые слова и нажмите «Применить»${suffix}`;
       return;
     }
 
+    if (!hasKeywords) {
+      if (!totalPosts) {
+        const suffix = isLoading ? ` · ${buildProgressMessage(view)}` : " · сообщений нет";
+        view.summaryNode.textContent = `${base}${suffix}`;
+        return;
+      }
+    }
+
+    if (!totalPosts) {
+      let suffix;
+      if (isLoading) {
+        suffix = ` · ${buildProgressMessage(view)}`;
+      } else if (hasKeywords && totalAuthored) {
+        suffix = " · нет сообщений с такими словами";
+      } else {
+        suffix = " · сообщений нет";
+      }
+      view.summaryNode.textContent = `${base}${suffix}${keywordPart}`;
+      return;
+    }
+
+    const totalPart =
+      totalAuthored === totalPosts
+        ? ` · всего ${totalPosts}`
+        : ` · показано ${totalPosts} из ${totalAuthored}`;
     const pagePart = ` · страница ${view.currentPage} из ${view.totalPages}`;
-    const totalPart = ` · всего ${totalPosts}`;
     const progressPart = isLoading ? ` · ${buildProgressMessage(view)}` : "";
-    view.summaryNode.textContent = `${base}${totalPart}${pagePart}${progressPart}`;
+    view.summaryNode.textContent = `${base}${totalPart}${pagePart}${keywordPart}${progressPart}`;
   }
 
   function renderFilteredPagination(view) {
@@ -989,16 +1261,37 @@
     clearButton.disabled = false;
 
     const view = STATE.filteredView;
+    if (STATE.activeFilter.awaitingApply) {
+      label.textContent = `Пользователь ${STATE.activeFilter.username} · введите ключевые слова и нажмите «Применить»`;
+      return;
+    }
+    const keywordsSummary = formatKeywordSummary(STATE.activeFilter.keywords);
+    const keywordSuffix = keywordsSummary ? ` · слова: ${keywordsSummary}` : "";
     if (view?.collector?.active) {
-      label.textContent = `Пользователь ${STATE.activeFilter.username} · ${buildProgressMessage(view)}`;
+      label.textContent = `Пользователь ${STATE.activeFilter.username} · ${buildProgressMessage(
+        view
+      )}${keywordSuffix}`;
       return;
     }
 
-    if (view?.posts.length) {
-      label.textContent = `Пользователь ${STATE.activeFilter.username} · ${view.posts.length} сообщений · страница ${view.currentPage}/${view.totalPages}`;
-    } else {
-      label.textContent = `У пользователя ${STATE.activeFilter.username} нет сообщений в этой теме`;
+    const visibleCount = view ? getVisiblePosts(view).length : 0;
+    const totalCount = view?.posts.length || 0;
+
+    if (visibleCount) {
+      const countPart =
+        totalCount === visibleCount
+          ? `${visibleCount} сообщений`
+          : `${visibleCount} из ${totalCount} сообщений`;
+      label.textContent = `Пользователь ${STATE.activeFilter.username} · ${countPart} · страница ${view.currentPage}/${view.totalPages}${keywordSuffix}`;
+      return;
     }
+
+    if (totalCount && STATE.activeFilter?.keywords?.length) {
+      label.textContent = `У пользователя ${STATE.activeFilter.username} нет сообщений с такими словами${keywordSuffix}`;
+      return;
+    }
+
+    label.textContent = `У пользователя ${STATE.activeFilter.username} нет сообщений в этой теме`;
   }
 
   function updateUIState() {

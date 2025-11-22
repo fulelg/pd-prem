@@ -93,6 +93,83 @@ body.pd-filter-mode .ipsPagination[data-ipsPagination] {
   margin-bottom: 12px;
 }
 
+.pd-keyword-filter {
+  margin: 16px 0;
+  padding: 16px 20px;
+  border: 1px solid rgba(26, 30, 35, 0.12);
+  border-radius: 12px;
+  background: #2F3441;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
+}
+
+.pd-keyword-heading {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.pd-keyword-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #fff;
+}
+
+.pd-keyword-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.pd-keyword-input {
+  flex: 1;
+  min-width: 220px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.pd-keyword-input:focus {
+  outline: none;
+  border-color: #1b69d2;
+  box-shadow: 0 0 0 2px rgba(27, 105, 210, 0.15);
+}
+
+.pd-keyword-apply,
+.pd-keyword-reset {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.pd-keyword-apply {
+  background: #1b69d2;
+  color: #fff;
+}
+
+.pd-keyword-apply:hover {
+  background: #1553a5;
+}
+
+.pd-keyword-reset {
+  background: #f3f4f7;
+  color: #333;
+}
+
+.pd-keyword-reset:hover {
+  background: #e4e7ed;
+}
+
+.pd-keyword-status {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #fff;
+}
+
 .pd-filter-results article.cPost {
   margin-bottom: 16px;
 }
