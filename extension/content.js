@@ -22,6 +22,7 @@
     enhancePosts();
     initObserver();
     restorePendingFilterIfNeeded();
+    ensureLikesButton();
   }
 
   function enhancePosts(root = document) {
@@ -1300,6 +1301,311 @@
       .forEach(applyCurrentFilterToPost);
     updateButtonStates();
     updateBanner();
+  }
+
+  function ensureLikesButton() {
+    if (document.getElementById("pd-likes-button")) {
+      return;
+    }
+
+    if (!window.location.pathname.includes("/topic/")) {
+      return;
+    }
+
+    const feed = document.getElementById(TOPIC_FEED_ID);
+    if (!feed) {
+      return;
+    }
+
+    const container = document.createElement("div");
+    container.className = "pd-likes-button-container";
+
+    const button = document.createElement("button");
+    button.id = "pd-likes-button";
+    button.type = "button";
+    button.className = "pd-likes-button";
+    button.textContent = "<3";
+    button.addEventListener("click", () => {
+      collectAndDisplayLikes();
+    });
+
+    container.appendChild(button);
+    feed.insertAdjacentElement("beforebegin", container);
+  }
+
+  async function collectAndDisplayLikes() {
+    const button = document.getElementById("pd-likes-button");
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Собираю лайки...";
+    }
+
+    const pageInfo = getPageInfo();
+    if (!pageInfo) {
+      alert("Не удалось определить информацию о страницах");
+      if (button) {
+        button.disabled = false;
+        button.textContent = "<3";
+      }
+      return;
+    }
+
+    const allLikes = [];
+    const parser = new DOMParser();
+    const pages = Array.from({ length: pageInfo.totalPages }, (_, i) => i + 1);
+    let processed = 0;
+    let currentIndex = 0;
+
+    async function processPage(pageNum) {
+      let root = null;
+      if (pageNum === pageInfo.currentPage) {
+        root = document;
+      } else {
+        const html = await fetchPageHtml(buildPageUrl(pageNum, pageInfo));
+        if (!html) {
+          return;
+        }
+        root = parser.parseFromString(html, "text/html");
+      }
+
+      const pageLikes = parseLikesFromPage(root);
+      allLikes.push(...pageLikes);
+
+      processed += 1;
+      if (button) {
+        button.textContent = `Обработано: ${processed}/${pageInfo.totalPages}`;
+      }
+    }
+
+    const workers = [];
+    const workerCount = Math.min(MAX_CONCURRENT_REQUESTS, pages.length);
+
+    for (let i = 0; i < workerCount; i += 1) {
+      workers.push(
+        (async () => {
+          while (currentIndex < pages.length) {
+            const pageNum = pages[currentIndex];
+            currentIndex += 1;
+            await processPage(pageNum);
+            await waitForNextFrame();
+          }
+        })()
+      );
+    }
+
+    await Promise.all(workers);
+
+    allLikes.sort((a, b) => b.timestamp - a.timestamp);
+    displayLikesList(allLikes);
+
+    if (button) {
+      button.disabled = false;
+      button.textContent = "<3";
+    }
+  }
+
+  function parseLikesFromPage(root) {
+    const likes = [];
+    if (!root || typeof root.querySelectorAll !== "function") {
+      return likes;
+    }
+
+    root.querySelectorAll(POST_SELECTOR).forEach((article) => {
+      const commentId = article.querySelector("[data-commentid]")?.dataset.commentid;
+      if (!commentId) {
+        return;
+      }
+
+      const postText = extractPostTextWithoutQuotes(article);
+      const postTime = extractPostTime(article);
+
+      const reactionBlurb = article.querySelector('[data-role="reactionBlurb"]');
+      if (!reactionBlurb || reactionBlurb.classList.contains("ipsHide")) {
+        return;
+      }
+
+      const reactionText = reactionBlurb.textContent || reactionBlurb.innerText || "";
+      if (!reactionText || !reactionText.includes("понравилось")) {
+        return;
+      }
+
+      const users = extractUsersFromReaction(reactionText);
+      if (users.length === 0) {
+        return;
+      }
+
+      users.forEach((username) => {
+        likes.push({
+          username,
+          postText,
+          postTime,
+          timestamp: postTime ? parseTimeToTimestamp(postTime) : Date.now(),
+          commentId
+        });
+      });
+    });
+
+    return likes;
+  }
+
+  function extractPostTextWithoutQuotes(article) {
+    return extractSearchableText(article);
+  }
+
+  function extractPostTime(article) {
+    const timeNode = article.querySelector("time[datetime]");
+    if (timeNode) {
+      const datetime = timeNode.getAttribute("datetime");
+      if (datetime) {
+        return new Date(datetime).toLocaleString("ru-RU", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit"
+        });
+      }
+    }
+
+    const timeText = article.querySelector("time")?.textContent?.trim();
+    if (timeText) {
+      return timeText;
+    }
+
+    return "";
+  }
+
+  function parseTimeToTimestamp(timeStr) {
+    if (!timeStr) {
+      return Date.now();
+    }
+
+    try {
+      const date = new Date(timeStr);
+      if (!Number.isNaN(date.getTime())) {
+        return date.getTime();
+      }
+    } catch (err) {
+      // ignore
+    }
+
+    const now = Date.now();
+    const relativeMatch = timeStr.match(/(\d+)\s*(минут|час|день|недел|месяц)/i);
+    if (relativeMatch) {
+      const value = parseInt(relativeMatch[1], 10);
+      const unit = relativeMatch[2].toLowerCase();
+      let ms = 0;
+      if (unit.includes("минут")) {
+        ms = value * 60 * 1000;
+      } else if (unit.includes("час")) {
+        ms = value * 60 * 60 * 1000;
+      } else if (unit.includes("день")) {
+        ms = value * 24 * 60 * 60 * 1000;
+      } else if (unit.includes("недел")) {
+        ms = value * 7 * 24 * 60 * 60 * 1000;
+      } else if (unit.includes("месяц")) {
+        ms = value * 30 * 24 * 60 * 60 * 1000;
+      }
+      return now - ms;
+    }
+
+    return now;
+  }
+
+  function extractUsersFromReaction(reactionText) {
+    const users = [];
+    if (!reactionText) {
+      return users;
+    }
+
+    const match = reactionText.match(/понравилось это/i);
+    if (!match) {
+      return users;
+    }
+
+    const beforeText = reactionText.split(/понравилось это/i)[0].trim();
+    if (!beforeText) {
+      return users;
+    }
+
+    const names = beforeText
+      .split(/\s+и\s+/i)
+      .flatMap((part) => part.split(/,\s*/))
+      .map((name) => name.trim())
+      .filter((name) => name.length > 0 && !/^и$/i.test(name));
+
+    return names.length > 0 ? names : [beforeText];
+  }
+
+  function displayLikesList(likes) {
+    const existing = document.getElementById("pd-likes-list");
+    if (existing) {
+      existing.remove();
+    }
+
+    const container = document.createElement("div");
+    container.id = "pd-likes-list";
+    container.className = "pd-likes-list";
+
+    const header = document.createElement("div");
+    header.className = "pd-likes-header";
+    header.innerHTML = `
+      <h3>Все лайки в топике (${likes.length})</h3>
+      <button type="button" class="pd-likes-close">×</button>
+    `;
+    header.querySelector(".pd-likes-close").addEventListener("click", () => {
+      container.remove();
+    });
+    container.appendChild(header);
+
+    const list = document.createElement("div");
+    list.className = "pd-likes-items";
+
+    if (likes.length === 0) {
+      list.innerHTML = '<div class="pd-likes-empty">Лайков не найдено</div>';
+    } else {
+      likes.forEach((like) => {
+        const item = document.createElement("div");
+        item.className = "pd-likes-item";
+        item.style.cursor = "pointer";
+        const postPreview = like.postText.length > 100
+          ? `${like.postText.substring(0, 100)}...`
+          : like.postText;
+        item.innerHTML = `
+          <div class="pd-likes-user"><strong>${escapeHtml(like.username)}</strong> поставил лайк на пост:</div>
+          <div class="pd-likes-post">"${escapeHtml(postPreview)}"</div>
+          <div class="pd-likes-time">в ${escapeHtml(like.postTime || "неизвестное время")}</div>
+        `;
+        item.addEventListener("click", () => {
+          container.remove();
+          if (like.commentId) {
+            const pageInfo = getPageInfo();
+            if (pageInfo) {
+              const url = `${pageInfo.baseUrl}?do=findComment&comment=${like.commentId}`;
+              window.location.href = url;
+            } else {
+              const anchor = `#comment-${like.commentId}`;
+              const existingPost = document.querySelector(anchor);
+              if (existingPost) {
+                existingPost.scrollIntoView({ behavior: "smooth", block: "center" });
+              } else {
+                window.location.hash = anchor;
+              }
+            }
+          }
+        });
+        list.appendChild(item);
+      });
+    }
+
+    container.appendChild(list);
+    document.body.appendChild(container);
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   if (document.readyState === "loading") {
