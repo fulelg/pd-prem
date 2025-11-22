@@ -1412,7 +1412,7 @@
         root = parser.parseFromString(html, "text/html");
       }
 
-      const pageLikes = parseLikesFromPage(root);
+      const pageLikes = parseLikesFromPage(root, pageNum);
       allLikes.push(...pageLikes);
 
       processed += 1;
@@ -1448,7 +1448,7 @@
     }
   }
 
-  function parseLikesFromPage(root) {
+  function parseLikesFromPage(root, pageNum) {
     const likes = [];
     if (!root || typeof root.querySelectorAll !== "function") {
       return likes;
@@ -1463,6 +1463,7 @@
       const postText = extractPostTextWithoutQuotes(article);
       const postTime = extractPostTime(article);
       const postUser = extractPostUser(article);
+      const postPage = pageNum ? String(pageNum) : "";
 
       const reactionBlurb = article.querySelector('[data-role="reactionBlurb"]');
       if (!reactionBlurb || reactionBlurb.classList.contains("ipsHide")) {
@@ -1485,6 +1486,7 @@
           postUser,
           postText,
           postTime,
+          postPage,
           timestamp: postTime ? parseTimeToTimestamp(postTime) : Date.now(),
           commentId
         });
@@ -1616,6 +1618,8 @@
     if (likes.length === 0) {
       list.innerHTML = '<div class="pd-likes-empty">Лайков не найдено</div>';
     } else {
+      likes = sortByPostTimeAscending(likes);
+      likes.reverse();
       likes.forEach((like) => {
         const item = document.createElement("div");
         item.className = "pd-likes-item";
@@ -1623,9 +1627,9 @@
         const postPreview = like.postText.length > 100
           ? `${like.postText.substring(0, 100)}...`
           : like.postText;
-        window.console.log(like);
         item.innerHTML = `
           <div class="pd-likes-user"><strong>${escapeHtml(like.username)}</strong> поставил лайк на пост пользователя <strong>${escapeHtml(like.postUser)}</strong>:</div>
+          <div class="pd-likes-page">на странице ${escapeHtml(like.postPage)}</div>
           <div class="pd-likes-post">"${escapeHtml(postPreview)}"</div>
           <div class="pd-likes-time">в ${escapeHtml(like.postTime || "неизвестное время")}</div>
         `;
@@ -1654,6 +1658,25 @@
     container.appendChild(list);
     document.body.appendChild(container);
   }
+
+function parseDate(dateString) {
+  const [datePart, timePart] = dateString.split(', ');
+  const [day, month, year] = datePart.split('.');
+  const [hour, minute] = timePart.split(':');
+  
+  return new Date(`${year}-${month}-${day}T${hour}:${minute}:00`);
+}
+
+function sortByPostTimeAscending(arr) {
+  const sortedArray = arr.sort((a, b) => {
+      const dateA = parseDate(a.postTime);
+      const dateB = parseDate(b.postTime);
+
+      return dateA - dateB;
+  });
+
+  return sortedArray;
+}
 
   function escapeHtml(text) {
     const div = document.createElement("div");
