@@ -1462,6 +1462,7 @@
 
       const postText = extractPostTextWithoutQuotes(article);
       const postTime = extractPostTime(article);
+      const postUser = extractPostUser(article);
 
       const reactionBlurb = article.querySelector('[data-role="reactionBlurb"]');
       if (!reactionBlurb || reactionBlurb.classList.contains("ipsHide")) {
@@ -1481,6 +1482,7 @@
       users.forEach((username) => {
         likes.push({
           username,
+          postUser,
           postText,
           postTime,
           timestamp: postTime ? parseTimeToTimestamp(postTime) : Date.now(),
@@ -1510,6 +1512,7 @@
         });
       }
     }
+    
 
     const timeText = article.querySelector("time")?.textContent?.trim();
     if (timeText) {
@@ -1517,6 +1520,11 @@
     }
 
     return "";
+  }
+
+  function extractPostUser(article) {
+    const author = extractAuthor(article);
+    return author?.displayName || "";
   }
 
   function parseTimeToTimestamp(timeStr) {
@@ -1615,8 +1623,9 @@
         const postPreview = like.postText.length > 100
           ? `${like.postText.substring(0, 100)}...`
           : like.postText;
+        window.console.log(like);
         item.innerHTML = `
-          <div class="pd-likes-user"><strong>${escapeHtml(like.username)}</strong> поставил лайк на пост:</div>
+          <div class="pd-likes-user"><strong>${escapeHtml(like.username)}</strong> поставил лайк на пост пользователя <strong>${escapeHtml(like.postUser)}</strong>:</div>
           <div class="pd-likes-post">"${escapeHtml(postPreview)}"</div>
           <div class="pd-likes-time">в ${escapeHtml(like.postTime || "неизвестное время")}</div>
         `;
