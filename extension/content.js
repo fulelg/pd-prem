@@ -23,6 +23,46 @@
     initObserver();
     restorePendingFilterIfNeeded();
     ensureLikesButton();
+    initNavigationWatcher();
+  }
+
+  function initNavigationWatcher() {
+    let lastUrl = window.location.href;
+    let checkInterval = null;
+
+    const checkUrl = () => {
+      if (window.location.href !== lastUrl) {
+        lastUrl = window.location.href;
+        setTimeout(() => {
+          ensureLikesButton();
+        }, 100);
+      }
+    };
+
+    window.addEventListener("popstate", checkUrl);
+    window.addEventListener("hashchange", checkUrl);
+
+    if (window.history && window.history.pushState) {
+      const originalPushState = window.history.pushState;
+      window.history.pushState = function(...args) {
+        originalPushState.apply(window.history, args);
+        setTimeout(checkUrl, 50);
+      };
+    }
+
+    if (window.history && window.history.replaceState) {
+      const originalReplaceState = window.history.replaceState;
+      window.history.replaceState = function(...args) {
+        originalReplaceState.apply(window.history, args);
+        setTimeout(checkUrl, 50);
+      };
+    }
+
+    checkInterval = setInterval(() => {
+      if (!document.getElementById("pd-likes-button") && document.getElementById(TOPIC_FEED_ID)) {
+        ensureLikesButton();
+      }
+    }, 1000);
   }
 
   function enhancePosts(root = document) {
@@ -43,6 +83,10 @@
             enhancePost(node);
           }
           node.querySelectorAll?.(POST_SELECTOR).forEach(enhancePost);
+
+          if (node.id === TOPIC_FEED_ID || node.querySelector?.(`#${TOPIC_FEED_ID}`)) {
+            ensureLikesButton();
+          }
         });
       });
     });
