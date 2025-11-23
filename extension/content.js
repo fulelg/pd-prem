@@ -1601,6 +1601,12 @@
     container.id = "pd-likes-list";
     container.className = "pd-likes-list";
 
+    const allLikes = sortByPostTimeAscending([...likes]);
+    allLikes.reverse();
+
+    const uniqueLikers = Array.from(new Set(likes.map((l) => l.username).filter(Boolean))).sort().filter((liker) => !liker.includes("друг"));
+    const uniquePostUsers = Array.from(new Set(likes.map((l) => l.postUser).filter(Boolean))).sort();
+
     const header = document.createElement("div");
     header.className = "pd-likes-header";
     header.innerHTML = `
@@ -1612,71 +1618,162 @@
     });
     container.appendChild(header);
 
+    const filtersContainer = document.createElement("div");
+    filtersContainer.className = "pd-likes-filters";
+
+    const filterLiker = document.createElement("div");
+    filterLiker.className = "pd-likes-filter-group";
+    const labelLiker = document.createElement("label");
+    labelLiker.textContent = "Лайки поставлен:";
+    labelLiker.htmlFor = "pd-filter-liker";
+    const selectLiker = document.createElement("select");
+    selectLiker.id = "pd-filter-liker";
+    selectLiker.className = "pd-likes-filter-select";
+    const optionAllLiker = document.createElement("option");
+    optionAllLiker.value = "";
+    optionAllLiker.textContent = "Все";
+    selectLiker.appendChild(optionAllLiker);
+    uniqueLikers.forEach((username) => {
+      const option = document.createElement("option");
+      option.value = username;
+      option.textContent = username;
+      selectLiker.appendChild(option);
+    });
+    filterLiker.appendChild(labelLiker);
+    filterLiker.appendChild(selectLiker);
+    filtersContainer.appendChild(filterLiker);
+
+    const filterPostUser = document.createElement("div");
+    filterPostUser.className = "pd-likes-filter-group";
+    const labelPostUser = document.createElement("label");
+    labelPostUser.textContent = "Лайк получен:";
+    labelPostUser.htmlFor = "pd-filter-post-user";
+    const selectPostUser = document.createElement("select");
+    selectPostUser.id = "pd-filter-post-user";
+    selectPostUser.className = "pd-likes-filter-select";
+    const optionAllPostUser = document.createElement("option");
+    optionAllPostUser.value = "";
+    optionAllPostUser.textContent = "Все";
+    selectPostUser.appendChild(optionAllPostUser);
+    uniquePostUsers.forEach((username) => {
+      const option = document.createElement("option");
+      option.value = username;
+      option.textContent = username;
+      selectPostUser.appendChild(option);
+    });
+    filterPostUser.appendChild(labelPostUser);
+    filterPostUser.appendChild(selectPostUser);
+    filtersContainer.appendChild(filterPostUser);
+
+    container.appendChild(filtersContainer);
+
     const list = document.createElement("div");
     list.className = "pd-likes-items";
 
-    if (likes.length === 0) {
-      list.innerHTML = '<div class="pd-likes-empty">Лайков не найдено</div>';
-    } else {
-      likes = sortByPostTimeAscending(likes);
-      likes.reverse();
-      likes.forEach((like) => {
-        const item = document.createElement("div");
-        item.className = "pd-likes-item";
-        item.style.cursor = "pointer";
-        const postPreview = like.postText.length > 100
-          ? `${like.postText.substring(0, 100)}...`
-          : like.postText;
-        item.innerHTML = `
-          <div class="pd-likes-user"><strong>${escapeHtml(like.username)}</strong> поставил лайк на пост пользователя <strong>${escapeHtml(like.postUser)}</strong>:</div>
-          <div class="pd-likes-page">на странице ${escapeHtml(like.postPage)}</div>
-          <div class="pd-likes-post">"${escapeHtml(postPreview)}"</div>
-          <div class="pd-likes-time">в ${escapeHtml(like.postTime || "неизвестное время")}</div>
-        `;
-        item.addEventListener("click", () => {
-          container.remove();
-          if (like.commentId) {
-            const pageInfo = getPageInfo();
-            if (pageInfo) {
-              const url = `${pageInfo.baseUrl}?do=findComment&comment=${like.commentId}`;
-              window.location.href = url;
-            } else {
-              const anchor = `#comment-${like.commentId}`;
-              const existingPost = document.querySelector(anchor);
-              if (existingPost) {
-                existingPost.scrollIntoView({ behavior: "smooth", block: "center" });
+    function renderFilteredLikes() {
+      const selectedLiker = selectLiker.value;
+      const selectedPostUser = selectPostUser.value;
+
+      const filtered = allLikes.filter((like) => {
+        const matchesLiker = !selectedLiker || like.username === selectedLiker;
+        const matchesPostUser = !selectedPostUser || like.postUser === selectedPostUser;
+        return matchesLiker && matchesPostUser;
+      });
+
+      list.innerHTML = "";
+
+      if (filtered.length === 0) {
+        list.innerHTML = '<div class="pd-likes-empty">Лайков не найдено</div>';
+      } else {
+        filtered.forEach((like) => {
+          const item = document.createElement("div");
+          item.className = "pd-likes-item";
+          item.style.cursor = "pointer";
+          const postPreview = like.postText.length > 100
+            ? `${like.postText.substring(0, 100)}...`
+            : like.postText;
+          item.innerHTML = `
+            <div class="pd-likes-user"><strong>${escapeHtml(like.username)}</strong> поставил лайк на пост пользователя <strong>${escapeHtml(like.postUser)}</strong>:</div>
+            <div class="pd-likes-page">на странице ${escapeHtml(like.postPage)}</div>
+            <div class="pd-likes-post">"${escapeHtml(postPreview)}"</div>
+            <div class="pd-likes-time">в ${escapeHtml(like.postTime || "неизвестное время")}</div>
+          `;
+          item.addEventListener("click", () => {
+            container.remove();
+            if (like.commentId) {
+              const pageInfo = getPageInfo();
+              if (pageInfo) {
+                const url = `${pageInfo.baseUrl}?do=findComment&comment=${like.commentId}`;
+                window.location.href = url;
               } else {
-                window.location.hash = anchor;
+                const anchor = `#comment-${like.commentId}`;
+                const existingPost = document.querySelector(anchor);
+                if (existingPost) {
+                  existingPost.scrollIntoView({ behavior: "smooth", block: "center" });
+                } else {
+                  window.location.hash = anchor;
+                }
               }
             }
-          }
+          });
+          list.appendChild(item);
         });
-        list.appendChild(item);
-      });
+      }
     }
+
+    const headerTitle = header.querySelector("h3");
+    function updateHeader(count) {
+      headerTitle.textContent = `Все лайки в топике (${count})`;
+    }
+
+    selectLiker.addEventListener("change", () => {
+      renderFilteredLikes();
+      const selectedLiker = selectLiker.value;
+      const selectedPostUser = selectPostUser.value;
+      const filtered = allLikes.filter((like) => {
+        const matchesLiker = !selectedLiker || like.username === selectedLiker;
+        const matchesPostUser = !selectedPostUser || like.postUser === selectedPostUser;
+        return matchesLiker && matchesPostUser;
+      });
+      updateHeader(filtered.length);
+    });
+
+    selectPostUser.addEventListener("change", () => {
+      renderFilteredLikes();
+      const selectedLiker = selectLiker.value;
+      const selectedPostUser = selectPostUser.value;
+      const filtered = allLikes.filter((like) => {
+        const matchesLiker = !selectedLiker || like.username === selectedLiker;
+        const matchesPostUser = !selectedPostUser || like.postUser === selectedPostUser;
+        return matchesLiker && matchesPostUser;
+      });
+      updateHeader(filtered.length);
+    });
 
     container.appendChild(list);
     document.body.appendChild(container);
+
+    renderFilteredLikes();
   }
 
-function parseDate(dateString) {
-  const [datePart, timePart] = dateString.split(', ');
-  const [day, month, year] = datePart.split('.');
-  const [hour, minute] = timePart.split(':');
-  
-  return new Date(`${year}-${month}-${day}T${hour}:${minute}:00`);
-}
+  function parseDate(dateString) {
+    const [datePart, timePart] = dateString.split(', ');
+    const [day, month, year] = datePart.split('.');
+    const [hour, minute] = timePart.split(':');
+    
+    return new Date(`${year}-${month}-${day}T${hour}:${minute}:00`);
+  }
 
-function sortByPostTimeAscending(arr) {
-  const sortedArray = arr.sort((a, b) => {
+  function sortByPostTimeAscending(arr) {
+    const sortedArray = arr.sort((a, b) => {
       const dateA = parseDate(a.postTime);
       const dateB = parseDate(b.postTime);
 
       return dateA - dateB;
-  });
+    });
 
-  return sortedArray;
-}
+    return sortedArray;
+  }
 
   function escapeHtml(text) {
     const div = document.createElement("div");
