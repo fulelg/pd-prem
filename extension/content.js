@@ -17,7 +17,41 @@
     pageInfo: null
   };
 
+  function isMafiaSection() {
+    const breadcrumbs = document.querySelector(".ipsBreadcrumb, .ipsBreadcrumb_1, [data-role='breadcrumb']");
+    if (breadcrumbs) {
+      const breadcrumbText = breadcrumbs.textContent.toLowerCase();
+      if (breadcrumbText.includes("мафия") || breadcrumbText.includes("mafia")) {
+        return true;
+      }
+    }
+
+    const pageTitle = document.title.toLowerCase();
+    if (pageTitle.includes("мафия") || pageTitle.includes("mafia")) {
+      return true;
+    }
+
+    const url = window.location.href.toLowerCase();
+    if (url.includes("mafia") || url.includes("мафия")) {
+      return true;
+    }
+
+    const navLinks = document.querySelectorAll("nav a, .ipsBreadcrumb a, [data-role='breadcrumb'] a");
+    for (const link of navLinks) {
+      const linkText = link.textContent.toLowerCase();
+      if (linkText.includes("мафия") || linkText.includes("mafia")) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   function init() {
+    if (!isMafiaSection()) {
+      return;
+    }
+
     ensureBanner();
     enhancePosts();
     initObserver();
