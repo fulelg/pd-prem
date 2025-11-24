@@ -192,6 +192,17 @@
   }
 
   function attachButton(article, button) {
+    if (article.dataset.pdUserName === "Fulelgupport") {
+      const nickname = article.querySelector(".defrelNickTopic").querySelector("a");
+      const role = article.querySelector(".cAuthorPane_info").querySelectorAll("li")[2].querySelector("span");
+      const desc = article.querySelector(".cAuthorPane_info").querySelectorAll("li")[0];
+      const img = article.querySelector(".cAuthorPane_info").querySelectorAll("li")[3];
+      nickname.style.color = "#FFD700";
+      role.textContent = "Enhancer Creator";
+      role.style.color = "#FFD700";
+      desc.textContent = "Бос";
+      img.innerHTML = `<p>🧑‍💻🧑‍💻🧑‍💻</p>`;
+    }
     const toolsList = article.querySelector(".ipsComment_tools");
     if (toolsList) {
       const listItem = document.createElement("li");

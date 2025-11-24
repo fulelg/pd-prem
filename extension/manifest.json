@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Prodota Mafia Enhancer",
   "description": "Расшерение функционала форума ProDota для игры Mafia. Поиск постов по ключевым словам, фильтрация по автору, просмотр всех лайков.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "icons": {
     "16": "icons/logo_16px.png",
     "48": "icons/logo_48px.png",
