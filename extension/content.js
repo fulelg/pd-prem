@@ -14,7 +14,10 @@
   const STATE = {
     activeFilter: null,
     filteredView: null,
-    pageInfo: null
+    pageInfo: null,
+    allPosts: [],
+    allPostsCollected: false,
+    allPostsCollector: null
   };
 
   function isMafiaSection() {
@@ -269,9 +272,82 @@
       username,
       keywords: [],
       keywordInput: "",
-      awaitingApply: true
+      awaitingApply: false
     };
-    startFilteredMode();
+    
+    // Если посты еще не собраны, сначала показываем загрузку и собираем посты
+    if (!STATE.allPostsCollected && !STATE.allPostsCollector) {
+      startLoadingMode();
+      // Запускаем сбор всех постов
+      collectAllPosts().then(() => {
+        // После сбора постов показываем полный блок с фильтром
+        if (STATE.activeFilter) {
+          startFilteredMode();
+        }
+      }).catch((err) => {
+        console.error("Ошибка при сборе постов:", err);
+        // В случае ошибки все равно показываем фильтр
+        if (STATE.activeFilter) {
+          startFilteredMode();
+        }
+      });
+    } else if (STATE.allPostsCollector) {
+      // Если сбор уже идет, показываем загрузку и ждем
+      startLoadingMode();
+      collectAllPosts().then(() => {
+        if (STATE.activeFilter) {
+          startFilteredMode();
+        }
+      });
+    } else {
+      // Если посты уже собраны, сразу показываем фильтр
+      startFilteredMode();
+    }
+  }
+  
+  function startLoadingMode() {
+    const author = STATE.activeFilter;
+    if (!author) {
+      return;
+    }
+
+    document.body.classList.add("pd-filter-mode");
+    resetFilteredView(true);
+
+    // Создаем минимальный view только с индикатором загрузки
+    const root = ensureFilteredRoot();
+    root.classList.add("pd-visible");
+    root.innerHTML = "";
+
+    const summary = document.createElement("div");
+    summary.className = "pd-filter-summary";
+    summary.textContent = `Сбор постов со всех страниц...`;
+    root.appendChild(summary);
+
+    const results = document.createElement("div");
+    results.className = "pd-filter-results";
+    results.innerHTML = `<div class="pd-filter-loading">Начинаем сбор постов...</div>`;
+    root.appendChild(results);
+
+    const view = {
+      author,
+      root,
+      summaryNode: summary,
+      resultsNode: results,
+      paginationNodes: [],
+      keywordControls: null,
+      keywords: [],
+      awaitingApply: false,
+      posts: [],
+      perPage: POSTS_PER_PAGE,
+      currentPage: 1,
+      totalPages: 0,
+      cancelled: false,
+      loadingText: ""
+    };
+
+    STATE.filteredView = view;
+    updateUIState();
   }
 
   function clearFilter() {
@@ -287,18 +363,44 @@
       return;
     }
 
+    // Не показываем блок с фильтром, если посты еще не собраны
+    if (!STATE.allPostsCollected) {
+      console.warn("Попытка показать фильтр до завершения сбора постов");
+      return;
+    }
+
     document.body.classList.add("pd-filter-mode");
     resetFilteredView(true);
 
     const view = createFilteredView(author);
     STATE.filteredView = view;
     initializeKeywordControls(view);
+    
+    filterPostsByUser(view, author.key);
     renderFilteredResults(view);
     updateUIState();
-
-    if (!view.awaitingApply && !view.collector) {
-      collectFilteredPosts(view);
+    document.querySelector(".pd-keyword-apply").click()
+  }
+  
+  function filterPostsByUser(view, userKey) {
+    if (!view || !userKey) {
+      view.posts = [];
+      return;
     }
+    
+    // Фильтруем уже собранные посты по пользователю
+    view.posts = STATE.allPosts
+      .filter(post => post.authorKey === userKey)
+      .map(post => ({
+        commentId: post.commentId,
+        pageNumber: post.pageNumber,
+        order: post.order,
+        html: post.html,
+        text: post.text
+      }));
+    
+    // Сортируем по порядку
+    view.posts.sort((a, b) => a.order - b.order);
   }
 
   function resetFilteredView(keepModeClass = false) {
@@ -363,6 +465,44 @@
     return view;
   }
 
+  function collectAllAuthors() {
+    const authorsMap = new Map();
+    
+    // Если посты уже собраны, используем их
+    if (STATE.allPostsCollected && STATE.allPosts.length > 0) {
+      STATE.allPosts.forEach((post) => {
+        if (post.authorKey && post.authorName) {
+          if (!authorsMap.has(post.authorKey)) {
+            authorsMap.set(post.authorKey, {
+              key: post.authorKey,
+              displayName: post.authorName,
+              id: null // ID не сохраняется в собранных постах
+            });
+          }
+        }
+      });
+    } else {
+      // Иначе собираем из DOM
+      const articles = document.querySelectorAll(POST_SELECTOR);
+      articles.forEach((article) => {
+        const author = extractAuthor(article);
+        if (author && author.key) {
+          if (!authorsMap.has(author.key)) {
+            authorsMap.set(author.key, {
+              key: author.key,
+              displayName: author.displayName,
+              id: author.id
+            });
+          }
+        }
+      });
+    }
+    
+    return Array.from(authorsMap.values()).sort((a, b) => 
+      a.displayName.localeCompare(b.displayName, 'ru')
+    );
+  }
+
   function attachKeywordControls(view, anchorNode) {
     if (!view || !anchorNode) {
       return null;
@@ -375,6 +515,46 @@
     heading.className = "pd-keyword-heading";
     heading.textContent = "Фильтр по ключевым словам";
     container.appendChild(heading);
+
+    // Добавляем переключатель пользователей
+    const userSwitchContainer = document.createElement("div");
+    userSwitchContainer.className = "pd-user-switch-container";
+    
+    const userSwitchLabel = document.createElement("label");
+    userSwitchLabel.className = "pd-user-switch-label";
+    userSwitchLabel.textContent = "Пользователь:";
+    userSwitchLabel.htmlFor = "pd-user-switch";
+    userSwitchContainer.appendChild(userSwitchLabel);
+    
+    const userSwitch = document.createElement("select");
+    userSwitch.id = "pd-user-switch";
+    userSwitch.className = "pd-user-switch";
+    
+    // Инициализируем список пользователей
+    const allAuthors = collectAllAuthors();
+    allAuthors.forEach((author) => {
+      const option = document.createElement("option");
+      option.value = author.key;
+      option.textContent = author.displayName;
+      if (view.author && view.author.key === author.key) {
+        option.selected = true;
+      }
+      userSwitch.appendChild(option);
+    });
+    
+    // Обработчик изменения пользователя
+    userSwitch._changeHandler = (event) => {
+      const selectedKey = event.target.value;
+      const allAuthors = collectAllAuthors();
+      const selectedAuthor = allAuthors.find(a => a.key === selectedKey);
+      if (selectedAuthor && (!view.author || view.author.key !== selectedKey)) {
+        toggleFilter(selectedAuthor.key, selectedAuthor.displayName);
+      }
+    };
+    userSwitch.addEventListener("change", userSwitch._changeHandler);
+    
+    userSwitchContainer.appendChild(userSwitch);
+    container.appendChild(userSwitchContainer);
 
     const hint = document.createElement("p");
     hint.className = "pd-keyword-hint";
@@ -422,8 +602,47 @@
     return {
       container,
       input,
-      status
+      status,
+      userSwitch,
+      userSwitchContainer
     };
+  }
+  
+  function updateUserSwitchList() {
+    if (!STATE.filteredView?.keywordControls?.userSwitch) {
+      return;
+    }
+    
+    const userSwitch = STATE.filteredView.keywordControls.userSwitch;
+    const currentValue = userSwitch.value;
+    const allAuthors = collectAllAuthors();
+    
+    // Очищаем список
+    userSwitch.innerHTML = "";
+    
+    // Заполняем новыми данными
+    allAuthors.forEach((author) => {
+      const option = document.createElement("option");
+      option.value = author.key;
+      option.textContent = author.displayName;
+      if (STATE.activeFilter && STATE.activeFilter.key === author.key) {
+        option.selected = true;
+      } else if (currentValue === author.key) {
+        option.selected = true;
+      }
+      userSwitch.appendChild(option);
+    });
+    
+    // Обновляем обработчик события, так как список изменился
+    userSwitch.removeEventListener("change", userSwitch._changeHandler);
+    userSwitch._changeHandler = (event) => {
+      const selectedKey = event.target.value;
+      const selectedAuthor = allAuthors.find(a => a.key === selectedKey);
+      if (selectedAuthor && (!STATE.activeFilter || STATE.activeFilter.key !== selectedKey)) {
+        toggleFilter(selectedAuthor.key, selectedAuthor.displayName);
+      }
+    };
+    userSwitch.addEventListener("change", userSwitch._changeHandler);
   }
 
   function initializeKeywordControls(view) {
@@ -441,6 +660,12 @@
     if (view.keywordControls.input) {
       view.keywordControls.input.value = rawValue;
     }
+    
+    // Обновляем выбранного пользователя в выпадающем списке
+    if (view.keywordControls.userSwitch && view.author) {
+      view.keywordControls.userSwitch.value = view.author.key;
+    }
+    
     renderKeywordStatus(view);
   }
 
@@ -559,7 +784,149 @@
     return root;
   }
 
+  async function collectAllPosts() {
+    
+    const pageInfo = getPageInfo();
+    if (!pageInfo) {
+      return Promise.resolve();
+    }
+    
+    if (STATE.allPostsCollector && !STATE.allPostsCollected) {
+      return new Promise((resolve) => {
+        const checkInterval = setInterval(() => {
+          if (STATE.allPostsCollected || !STATE.allPostsCollector) {
+            clearInterval(checkInterval);
+            resolve();
+          }
+        }, 100);
+      });
+    }
+    
+    if (STATE.allPostsCollected) {
+      return Promise.resolve();
+    }
+
+    const traversal = buildTraversalOrder(pageInfo.currentPage, pageInfo.totalPages);
+    const parser = new DOMParser();
+    const collectorState = {
+      pageInfo,
+      parser,
+      traversal,
+      processed: 0,
+      total: traversal.length,
+      active: true,
+      cancelled: false,
+      seen: new Set(),
+      nextIndex: 0
+    };
+
+    STATE.allPostsCollector = collectorState;
+    STATE.allPosts = [];
+
+    
+    const workerCount = Math.min(MAX_CONCURRENT_REQUESTS, traversal.length);
+    const workers = [];
+    for (let i = 0; i < workerCount; i += 1) {
+      workers.push(runAllPostsCollectorWorker(collectorState));
+    }
+
+    await Promise.all(workers);
+    collectorState.active = false;
+    STATE.allPostsCollected = true;
+    STATE.allPostsCollector = null;
+    
+    STATE.allPosts.sort((a, b) => a.order - b.order);
+    
+    updateUserSwitchList();
+    
+    updateBanner();
+  }
+
+  async function runAllPostsCollectorWorker(collectorState) {
+    while (true) {
+      if (collectorState.cancelled) {
+        return;
+      }
+
+      const pageNumber = getNextCollectorPage(collectorState);
+      if (pageNumber == null) {
+        return;
+      }
+
+      const pageInfo = collectorState.pageInfo;
+      let root = null;
+      if (pageNumber === pageInfo.currentPage) {
+        root = document.getElementById(TOPIC_FEED_ID) || document;
+      } else {
+        const html = await fetchPageHtml(buildPageUrl(pageNumber, pageInfo));
+        if (!html) {
+          collectorState.processed += 1;
+          continue;
+        }
+        root = collectorState.parser.parseFromString(html, "text/html");
+      }
+
+      const posts = extractAllPosts(root, pageNumber);
+      let added = 0;
+      posts.forEach((post) => {
+        if (!post.commentId || collectorState.seen.has(post.commentId)) {
+          return;
+        }
+        collectorState.seen.add(post.commentId);
+        STATE.allPosts.push(post);
+        added += 1;
+      });
+
+      collectorState.processed += 1;
+      
+      updateAllPostsProgress();
+      
+      if (added > 0 && (collectorState.processed % 5 === 0 || collectorState.processed === 1)) {
+        updateUserSwitchList();
+      }
+
+      await waitForNextFrame();
+    }
+  }
+  
+  function updateAllPostsProgress() {
+    if (!STATE.filteredView || !STATE.allPostsCollector) {
+      return;
+    }
+    
+    const view = STATE.filteredView;
+    const processed = STATE.allPostsCollector.processed || 0;
+    const total = STATE.allPostsCollector.total || "?";
+    const posts = STATE.allPosts.length || 0;
+    const message = `Обработано страниц: ${processed}/${total}. Найдено сообщений: ${posts}`;
+    
+    if (view.summaryNode) {
+      view.summaryNode.textContent = `Сбор постов со всех страниц: ${message}`;
+    }
+    
+    if (view.resultsNode) {
+      view.resultsNode.innerHTML = `<div class="pd-filter-loading">${message}</div>`;
+    }
+    
+    updateBanner();
+  }
+
   async function collectFilteredPosts(view) {
+    if (STATE.allPostsCollected) {
+      filterPostsByUser(view, view.author.key);
+      renderFilteredResults(view);
+      updateBanner();
+      return;
+    }
+
+    if (STATE.allPostsCollector) {
+      await collectAllPosts();
+      filterPostsByUser(view, view.author.key);
+      renderFilteredResults(view);
+      updateBanner();
+      return;
+    }
+
     const pageInfo = getPageInfo();
     if (!pageInfo) {
       view.resultsNode.innerHTML = `<div class="pd-filter-empty">Не удалось определить страницы темы.</div>`;
@@ -698,9 +1065,16 @@
   }
 
   function buildProgressMessage(view) {
-    const processed = view.collector?.processed || 0;
-    const total = view.collector?.total || "?";
-    const posts = view.posts?.length || 0;
+    if (STATE.allPostsCollector && !STATE.allPostsCollected) {
+      const processed = STATE.allPostsCollector.processed || 0;
+      const total = STATE.allPostsCollector.total || "?";
+      const posts = STATE.allPosts.length || 0;
+      return `Обработано страниц: ${processed}/${total}. Найдено сообщений: ${posts}`;
+    }
+    
+    const processed = view?.collector?.processed || 0;
+    const total = view?.collector?.total || "?";
+    const posts = view?.posts?.length || 0;
     return `Обработано страниц: ${processed}/${total}. Найдено сообщений: ${posts}`;
   }
 
@@ -726,7 +1100,6 @@
       push(current + offset);
       offset += 1;
       if (offset > total && order.length < total) {
-        // fallback, just to avoid infinite loop
         for (let page = 1; page <= total; page += 1) {
           push(page);
         }
@@ -755,7 +1128,6 @@
     try {
       sessionStorage.setItem(PENDING_FILTER_KEY, JSON.stringify(payload));
     } catch (err) {
-      // ignore storage issues
     }
 
     const pageInfo = getPageInfo();
@@ -779,7 +1151,6 @@
     try {
       sessionStorage.removeItem(PENDING_FILTER_KEY);
     } catch (err) {
-      // ignore
     }
 
     let data = null;
@@ -811,7 +1182,64 @@
       keywordInput: typeof data.keywordInput === "string" ? data.keywordInput : "",
       awaitingApply: data.awaitingApply === false ? false : true
     };
-    startFilteredMode();
+    
+    if (!STATE.allPostsCollected && !STATE.allPostsCollector) {
+      startLoadingMode();
+      collectAllPosts().then(() => {
+        if (STATE.activeFilter) {
+          startFilteredMode();
+        }
+      });
+    } else if (STATE.allPostsCollector && !STATE.allPostsCollected) {
+      startLoadingMode();
+      collectAllPosts().then(() => {
+        if (STATE.activeFilter) {
+          startFilteredMode();
+        }
+      });
+    } else {
+      startFilteredMode();
+      const form = document.querySelector(".pd-keyword-form");
+      form.submit();
+    }
+  }
+
+  function extractAllPosts(root, pageNumber) {
+    if (!root || typeof root.querySelectorAll !== "function") {
+      return [];
+    }
+
+    const posts = [];
+    root.querySelectorAll(POST_SELECTOR).forEach((article, index) => {
+      const author = extractAuthor(article);
+      if (!author || !author.key) {
+        return;
+      }
+      const commentNode = article.querySelector("[data-commentid]");
+      const commentId = commentNode?.dataset.commentid || article.id || `${pageNumber}_${index}`;
+      const anchor = `<a id="comment-${commentId}"></a>`;
+      const clone = document.importNode(article, true);
+      normalizeEmbeddedMedia(clone);
+      const textContent = extractSearchableText(article);
+      if (clone.dataset) {
+        delete clone.dataset.pdEnhanced;
+        delete clone.dataset.pdUserKey;
+        delete clone.dataset.pdUserName;
+      }
+      clone.classList?.remove("pd-post-hidden", "pd-post-highlight");
+      const wrapper = document.createElement("div");
+      wrapper.appendChild(clone);
+      posts.push({
+        commentId,
+        pageNumber,
+        order: pageNumber * 1000 + index,
+        html: `${anchor}${wrapper.innerHTML}`,
+        text: textContent,
+        authorKey: author.key,
+        authorName: author.displayName
+      });
+    });
+    return posts;
   }
 
   function extractMatchingPosts(root, pageNumber, targetKey) {
@@ -844,7 +1272,9 @@
         pageNumber,
         order: pageNumber * 1000 + index,
         html: `${anchor}${wrapper.innerHTML}`,
-        text: textContent
+        text: textContent,
+        authorKey: author.key,
+        authorName: author.displayName
       });
     });
     return matches;
@@ -1352,11 +1782,23 @@
 
     const view = STATE.filteredView;
     if (STATE.activeFilter.awaitingApply) {
-      label.textContent = `Пользователь ${STATE.activeFilter.username} · введите ключевые слова и нажмите «Применить»`;
+      // Если идет сбор всех постов, показываем это
+      if (STATE.allPostsCollector && !STATE.allPostsCollected) {
+        label.textContent = `Сбор постов со всех страниц: ${buildProgressMessage(view)}`;
+      } else {
+        label.textContent = `Пользователь ${STATE.activeFilter.username} · введите ключевые слова и нажмите «Применить»`;
+      }
       return;
     }
     const keywordsSummary = formatKeywordSummary(STATE.activeFilter.keywords);
     const keywordSuffix = keywordsSummary ? ` · слова: ${keywordsSummary}` : "";
+    
+    // Если идет сбор всех постов, показываем его прогресс
+    if (STATE.allPostsCollector && !STATE.allPostsCollected) {
+      label.textContent = `Сбор постов со всех страниц: ${buildProgressMessage(view)}`;
+      return;
+    }
+    
     if (view?.collector?.active) {
       label.textContent = `Пользователь ${STATE.activeFilter.username} · ${buildProgressMessage(
         view
