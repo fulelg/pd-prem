@@ -377,19 +377,35 @@
     filterPostsByUser(view, author.key);
     renderFilteredResults(view);
     updateUIState();
-    document.querySelector(".pd-keyword-apply").click()
   }
   
   function filterPostsByUser(view, userKey) {
-    if (!view || !userKey) {
+    if (!view) {
+      return;
+    }
+    
+    // Специальный режим: показывать посты всех игроков
+    if (userKey === "__all__") {
+      view.posts = STATE.allPosts.map((post) => ({
+        commentId: post.commentId,
+        pageNumber: post.pageNumber,
+        order: post.order,
+        html: post.html,
+        text: post.text
+      }));
+      view.posts.sort((a, b) => a.order - b.order);
+      return;
+    }
+    
+    if (!userKey) {
       view.posts = [];
       return;
     }
     
     // Фильтруем уже собранные посты по пользователю
     view.posts = STATE.allPosts
-      .filter(post => post.authorKey === userKey)
-      .map(post => ({
+      .filter((post) => post.authorKey === userKey)
+      .map((post) => ({
         commentId: post.commentId,
         pageNumber: post.pageNumber,
         order: post.order,
@@ -530,6 +546,17 @@
     
     // Инициализируем список пользователей
     const allAuthors = collectAllAuthors();
+    
+    // Специальная опция: все игроки
+    const allOption = document.createElement("option");
+    allOption.value = "__all__";
+    allOption.textContent = "Все игроки";
+    if (!view.author || view.author.key === "__all__") {
+      allOption.selected = true;
+    }
+    userSwitch.appendChild(allOption);
+    
+    // Остальные авторы
     allAuthors.forEach((author) => {
       const option = document.createElement("option");
       option.value = author.key;
@@ -543,8 +570,26 @@
     // Обработчик изменения пользователя
     userSwitch._changeHandler = (event) => {
       const selectedKey = event.target.value;
-      const allAuthors = collectAllAuthors();
-      const selectedAuthor = allAuthors.find(a => a.key === selectedKey);
+      
+      // Режим "Все игроки": не дергаем сеть и не прыгаем по страницам,
+      // просто показываем все уже собранные посты
+      if (selectedKey === "__all__") {
+        STATE.activeFilter = {
+          key: "__all__",
+          username: "Все игроки",
+          keywords: Array.isArray(view.keywords) ? [...view.keywords] : [],
+          keywordInput: typeof view.keywordInput === "string" ? view.keywordInput : "",
+          awaitingApply: view.awaitingApply !== false
+        };
+        view.author = { key: "__all__", username: "Все игроки" };
+        filterPostsByUser(view, "__all__");
+        renderFilteredResults(view);
+        updateBanner();
+        return;
+      }
+      
+      const allAuthorsNow = collectAllAuthors();
+      const selectedAuthor = allAuthorsNow.find((a) => a.key === selectedKey);
       if (selectedAuthor && (!view.author || view.author.key !== selectedKey)) {
         toggleFilter(selectedAuthor.key, selectedAuthor.displayName);
       }
@@ -618,7 +663,19 @@
     // Очищаем список
     userSwitch.innerHTML = "";
     
-    // Заполняем новыми данными
+    // Специальная опция: все игроки
+    const allOption = document.createElement("option");
+    allOption.value = "__all__";
+    allOption.textContent = "Все игроки";
+    if (
+      (STATE.activeFilter && STATE.activeFilter.key === "__all__") ||
+      currentValue === "__all__"
+    ) {
+      allOption.selected = true;
+    }
+    userSwitch.appendChild(allOption);
+    
+    // Остальные авторы
     allAuthors.forEach((author) => {
       const option = document.createElement("option");
       option.value = author.key;
